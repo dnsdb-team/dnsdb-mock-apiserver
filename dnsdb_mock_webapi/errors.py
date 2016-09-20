@@ -1,4 +1,5 @@
 import web
+import json
 
 AUTHENTICATE_FAILED = {'success': False, 'error': 'authenticate_failed', 'message': "Username password does not match"}
 UNAUTHORIZED_ERROR = {'success': False, 'error': 'unauthorized', 'message': 'Access token has expired or not existed'}
@@ -21,8 +22,28 @@ WRONG_SEARCH_ID = {'success': False, 'error': 'wrong_search_id', 'message': 'Wro
 
 
 class UnauthorizedError(web.HTTPError):
-    def __init__(self):
+    def __init__(self, data=AUTHENTICATE_FAILED):
         status = '401 Unauthorized'
         headers = {'Content-Type': 'application/json'}
-        data = AUTHENTICATE_FAILED
-        web.HTTPError.__init__(self, status, headers, data)
+        web.HTTPError.__init__(self, status, headers, json.dumps(data))
+
+
+class BadRequestError(web.HTTPError):
+    def __init__(self, data):
+        status = '400 Bad Request'
+        headers = {'Content-Type': 'application/json'}
+        web.HTTPError.__init__(self, status, headers, json.dumps(data))
+
+
+class NotFoundError(web.HTTPError):
+    def __init__(self, data=NOT_FOUND):
+        status = '404 Not Found'
+        headers = {'Content-Type': 'application/json'}
+        web.HTTPError.__init__(self, status, headers, json.dumps(data))
+
+
+class CreditsInsufficientError(web.HTTPError):
+    def __init__(self, data=CREDITS_INSUFFICIENT):
+        status = '402 Credits Insufficient'
+        headers = {'Content-Type': 'application/json'}
+        web.HTTPError.__init__(self, status, headers, json.dumps(data))
