@@ -19,6 +19,8 @@ default_search_id = None
 
 users = []
 
+return_error_response = None
+
 
 def get_user(username, password):
     for user in users:
@@ -29,7 +31,7 @@ def get_user(username, password):
 
 class ApplicationContext(object):
     def __init__(self):
-        self.context = {'tokens': []}
+        self.context = {}
 
     def has_token(self, token):
         return token in self.context.keys()
@@ -42,6 +44,9 @@ class ApplicationContext(object):
 
     def get_retrieve_ctx(self, search_id):
         return self.context[search_id]
+
+    def reset(self):
+        self.context = {}
 
 
 class RetrieveContext(object):
@@ -87,6 +92,8 @@ class Index(object):
 
 class Authorize(object):
     def POST(self):
+        if return_error_response:
+            raise return_error_response
         i = web.input()
         username = i.get("username")
         password = i.get("password")
@@ -110,6 +117,8 @@ class Authorize(object):
 
 class SearchDns(object):
     def GET(self):
+        if return_error_response:
+            raise return_error_response
         token = web.ctx.env.get('HTTP_ACCESS_TOKEN')
         if not context.has_token(token):
             raise errors.UnauthorizedError()
@@ -144,6 +153,8 @@ class SearchDns(object):
 
 class SearchAllDns(object):
     def GET(self):
+        if return_error_response:
+            raise return_error_response
         token = web.ctx.env.get('HTTP_ACCESS_TOKEN')
         if not context.has_token(token):
             raise errors.UnauthorizedError()
@@ -163,6 +174,8 @@ class SearchAllDns(object):
 
 class RetrieveDns(object):
     def GET(self):
+        if return_error_response:
+            raise return_error_response
         i = web.input()
         search_id = i.get("id")
         token = web.ctx.env.get('HTTP_ACCESS_TOKEN')
@@ -189,6 +202,8 @@ class RetrieveDns(object):
 
 class Resources(object):
     def GET(self):
+        if return_error_response:
+            raise return_error_response
         token = web.ctx.env.get('HTTP_ACCESS_TOKEN')
         if not context.has_token(token):
             raise errors.UnauthorizedError()

@@ -48,3 +48,17 @@ class CreditsInsufficientError(web.HTTPError):
         status = '402 Credits Insufficient'
         headers = {'Content-Type': 'application/json'}
         web.HTTPError.__init__(self, status, headers, json.dumps(data))
+
+
+class InternalServerError(web.HTTPError):
+    def __init__(self, data=INTERNAL_SERVER_ERROR):
+        status = '500 Internal Server Error'
+        headers = {'Content-Type': 'application/json'}
+        web.HTTPError.__init__(self, status, headers, json.dumps(data))
+
+
+class GatewayTimeoutError(web.HTTPError):
+    def __init__(self, data=GATEWAY_TIMEOUT_ERROR):
+        status = '504 Gateway Timeout'
+        headers = {'Content-Type': 'application/json'}
+        web.HTTPError.__init__(self, status, headers, json.dumps(data))
