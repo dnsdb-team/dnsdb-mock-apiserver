@@ -1,26 +1,30 @@
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals
+from dnsdb_mock_apiserver import errors
+from .utils import validate_ip, random_string
 import json
-import random
-import thread
 import web
-import errors
-from utils import validate_ip
+import sys
+import time
 
+try:
+    import thread
+except ImportError:
+    import _thread as thread
 default_remaining_request = 10
 max_page_size = 100
 total = 100
 default_access_token = None
 default_search_id = None
-users = {
-    'admin': {'password': '12345', 'remaining_request': 10},
-}
+
+users = []
 
 
-def generate_random_string():
-    charsets = 'abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    token = ''
-    for i in range(0, 128):
-        token += charsets[random.randint(0, len(charsets) - 1)]
-    return token
+def get_user(username, password):
+    for user in users:
+        if user.username == username and user.password == password:
+            return user
+    return None
 
 
 class ApplicationContext(object):
@@ -28,10 +32,10 @@ class ApplicationContext(object):
         self.context = {'tokens': []}
 
     def has_token(self, token):
-        return token in self.context['tokens']
+        return token in self.context.keys()
 
-    def put_token(self, token):
-        self.context['tokens'].append(token)
+    def save_token(self, token, user):
+        self.context[token] = user
 
     def put_retrieve_context(self, search_id, retrieve_context):
         self.context[search_id] = retrieve_context
@@ -41,20 +45,17 @@ class ApplicationContext(object):
 
 
 class RetrieveContext(object):
-    def __init__(self, data, remaining_request):
+    def __init__(self, data):
         self.data = data
         self.total = len(data)
-        self.remaining_request = remaining_request
 
 
-dns_data = [
-    {'host': 'a.com', 'type': 'a', 'value': '1.1.1.1'},
-    {'host': 'b.com', 'type': 'a', 'value': '1.1.1.2'},
-    {'host': 'c.com', 'type': 'a', 'value': '1.1.1.3'},
-    {'host': 'd.com', 'type': 'a', 'value': '1.1.1.4'},
-]
-
-all_dns_data = dns_data * 100
+dns_records = [
+                  {'host': 'a.com', 'type': 'a', 'value': '1.1.1.1'},
+                  {'host': 'b.com', 'type': 'a', 'value': '1.1.1.2'},
+                  {'host': 'c.com', 'type': 'a', 'value': '1.1.1.3'},
+                  {'host': 'd.com', 'type': 'a', 'value': '1.1.1.4'},
+              ] * 100
 
 context = ApplicationContext()
 
@@ -92,14 +93,16 @@ class Authorize(object):
         if default_access_token:
             token = default_access_token
         else:
-            token = generate_random_string()
-        if users.get(username, None) == password:
+            token = random_string()
+        user = get_user(username, password)
+        if user:
             data = {
                 'success': True,
                 'access_token': token,
                 'expire_in': 600
             }
-            context.put_token(data['access_token'])
+
+            context.save_token(token, user)
             return data
         else:
             raise errors.UnauthorizedError()
@@ -110,6 +113,9 @@ class SearchDns(object):
         token = web.ctx.env.get('HTTP_ACCESS_TOKEN')
         if not context.has_token(token):
             raise errors.UnauthorizedError()
+        user = context.context[token]
+        if user.remaining_request <= 0:
+            raise errors.CreditsInsufficientError()
         i = web.input()
         domain = i.get('domain')
         host = i.get('host')
@@ -130,7 +136,10 @@ class SearchDns(object):
                 raise errors.BadRequestError(errors.IP_VALUE_ERROR)
         if domain is None and ip is None and host is None:
             raise errors.BadRequestError(errors.MISSING_QUERY_ERROR)
-        return {'success': True, 'data': dns_data, 'remaining_request': 321, 'total': 921}
+        total = len(dns_records)
+        data = dns_records[start_position:start_position + 30]
+        user.remaining_request -= 1
+        return {'success': True, 'data': data, 'remaining_request': user.remaining_request, 'total': total}
 
 
 class SearchAllDns(object):
@@ -141,9 +150,8 @@ class SearchAllDns(object):
         if default_search_id:
             search_id = default_search_id
         else:
-            search_id = generate_random_string()
-        dns_set = [{"host": "a.com", "type": "a", "value": "1.1.1.1"}]
-        retrieve_ctx = RetrieveContext(data=dns_set * total, remaining_request=default_remaining_request)
+            search_id = random_string()
+        retrieve_ctx = RetrieveContext(data=dns_records)
         context.put_retrieve_context(search_id, retrieve_ctx)
         data = {
             "success": True,
@@ -157,19 +165,23 @@ class RetrieveDns(object):
     def GET(self):
         i = web.input()
         search_id = i.get("id")
+        token = web.ctx.env.get('HTTP_ACCESS_TOKEN')
+        if not context.has_token(token):
+            raise errors.UnauthorizedError()
+        user = context.context[token]
         retrieve_ctx = context.get_retrieve_ctx(search_id)
-        if retrieve_ctx.remaining_request <= 0:
-            raise errors.CreditsInsufficientError()
         data = retrieve_ctx.data[:max_page_size]
         for record in data:
             retrieve_ctx.data.remove(record)
         if len(data) > 0:
-            retrieve_ctx.remaining_request -= 1
+            if user.remaining_request <= 0:
+                raise errors.CreditsInsufficientError()
+            user.remaining_request -= 1
             return {
                 "success": True,
                 "total": retrieve_ctx.total,
                 "data": data,
-                'remaining_request': retrieve_ctx.remaining_request
+                'remaining_request': user.remaining_request
             }
         else:
             raise errors.NotFoundError()
@@ -177,7 +189,11 @@ class RetrieveDns(object):
 
 class Resources(object):
     def GET(self):
-        pass
+        token = web.ctx.env.get('HTTP_ACCESS_TOKEN')
+        if not context.has_token(token):
+            raise errors.UnauthorizedError()
+        user = context.context[token]
+        return {'remaining_dns_request': user.remaining_request}
 
 
 app = web.application(urls, globals())
@@ -185,7 +201,11 @@ app.add_processor(api_processor)
 
 
 def start():
+    temp = sys.argv
+    sys.argv = []
     thread.start_new_thread(app.run, ())
+    time.sleep(0.1)
+    sys.argv = temp
 
 
 def stop():
